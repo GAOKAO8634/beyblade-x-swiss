@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>戰鬥陀螺X 瑞士制比賽管理系統</title>
+    <title>戰鬥陀螺X 綜合賽事管理系統 (瑞士制/單淘汰)</title>
     <style>
         :root {
             --primary: #ff4757;
@@ -52,8 +52,8 @@
         .btn:hover { opacity: 0.9; }
         .btn-secondary { background-color: #747d8c; }
         
-        /* 頁籤設計 */
-        .flex-container { display: flex; gap: 20px; }
+        /* 雙欄排版 */
+        .flex-container { display: flex; gap: 20px; flex-wrap: wrap; }
         .flex-child { flex: 1; min-width: 300px; }
         
         /* 對戰組合樣式 */
@@ -93,23 +93,36 @@
 <body>
 
 <div class="container">
-    <h1>🌪️ 戰鬥陀螺X 瑞士制賽事管理</h1>
+    <h1>🌪️ 戰鬥陀螺X 賽事管理系統</h1>
     
     <div id="setup-stage" class="card">
         <h2>第一步：賽事設定與選手登錄</h2>
+        
         <div style="margin-bottom: 15px;">
+            <label><strong>賽事類型：</strong></label>
+            <select id="tournament-type" style="padding: 5px; font-size: 14px;" onchange="toggleRoundInput(this.value)">
+                <option value="swiss">瑞士制（不淘汰，累計積分）</option>
+                <option value="single">單淘汰制（輸一場即淘汰）</option>
+            </select>
+        </div>
+
+        <div id="rounds-input-container" style="margin-bottom: 15px;">
             <label><strong>預計比賽輪數：</strong></label>
             <input type="number" id="total-rounds" value="6" min="1" max="10" style="padding: 5px; width: 60px;">
-            <small style="color: #666; margin-left: 10px;">(建議：64人設定 6 輪)</small>
+            <small style="color: #666; margin-left: 10px;">(建議：64人設定 6 輪，32人設定 5 輪)</small>
         </div>
+        
         <p>請輸入選手名單（每行一個名字，上限 64 人）：</p>
         <textarea id="player-names" placeholder="選手A&#10;選手B&#10;選手C..."></textarea>
         <p><button class="btn" onclick="startTournament()">生成第一輪對戰 (隨機抽籤)</button></p>
     </div>
 
     <div id="tournament-stage" class="card hidden">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h2 id="current-round-title">當前輪次：第 1 輪</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div>
+                <h2 id="current-round-title" style="margin: 0;">當前輪次：第 1 輪</h2>
+                <span id="tournament-type-label" style="background: #2f3542; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;"></span>
+            </div>
             <div>
                 <button class="btn btn-secondary" onclick="resetTournament()">重設賽事</button>
             </div>
@@ -118,7 +131,7 @@
         <div class="flex-container">
             <div class="flex-child">
                 <h3>🥊 對戰組合與比分填寫</h3>
-                <p style="color: #666; font-size: 14px;">提示：戰鬥陀螺X 正規賽為 4 分制，請點選或輸入雙方分數。</p>
+                <p style="color: #666; font-size: 14px;">提示：戰鬥陀螺X 正規賽為 4 分制。填寫完點擊下方按鈕前進下一輪。</p>
                 <div id="matches-container"></div>
                 <button class="btn" id="next-round-btn" onclick="submitRound()" style="width: 100%; margin-top: 15px;">確認此輪比分並計算下一輪</button>
             </div>
@@ -131,7 +144,7 @@
                             <th>排名</th>
                             <th>名字</th>
                             <th>積分 (勝3/平1)</th>
-                            <th>小分 (Buchholz)</th>
+                            <th id="bxh-header">小分 (Buchholz)</th>
                         </tr>
                     </thead>
                     <tbody id="leaderboard-body">
@@ -145,9 +158,22 @@
 <script>
 // --- 全域變數定義 ---
 let players = [];
-let rounds = []; // 存放每一輪的對戰資訊
+let rounds = []; 
 let currentRound = 0;
 let totalRoundsSetting = 6;
+let tournamentType = 'swiss';
+
+// 控制輪數輸入框的顯示
+function toggleRoundInput(type) {
+    const container = document.getElementById('rounds-input-container');
+    if (type === 'single') {
+        container.style.opacity = '0.5';
+        document.getElementById('total-rounds').disabled = true;
+    } else {
+        container.style.opacity = '1';
+        document.getElementById('total-rounds').disabled = false;
+    }
+}
 
 // --- 1. 初始化賽事 ---
 function startTournament() {
@@ -158,7 +184,16 @@ function startTournament() {
     if (names.length > 64) return alert('目前系統上限為 64 人！');
     if (names.length < 2) return alert('至少需要 2 位選手才能開始比賽！');
     
-    totalRoundsSetting = parseInt(document.getElementById('total-rounds').value) || 6;
+    tournamentType = document.getElementById('tournament-type').value;
+
+    // 計算總輪數
+    if (tournamentType === 'single') {
+        totalRoundsSetting = Math.ceil(Math.log2(names.length));
+        document.getElementById('bxh-header').style.display = 'none'; 
+    } else {
+        totalRoundsSetting = parseInt(document.getElementById('total-rounds').value) || 6;
+        document.getElementById('bxh-header').style.display = '';
+    }
 
     // 格式化選手資料
     players = names.map((name, index) => ({
@@ -166,7 +201,8 @@ function startTournament() {
         name: name,
         score: 0,
         bxh: 0,
-        opponents: []
+        opponents: [],
+        isEliminated: false
     }));
 
     currentRound = 1;
@@ -174,23 +210,28 @@ function startTournament() {
     
     // 第一輪隨機亂序配對
     let shuffledPlayers = [...players].sort(() => Math.random() - 0.5);
-    generatePairings(shuffledPlayers);
+    
+    if (tournamentType === 'single') {
+        generateSingleEliminationPairings(shuffledPlayers);
+    } else {
+        generatePairings(shuffledPlayers);
+    }
 
     // 切換 UI 顯示
     document.getElementById('setup-stage').classList.add('hidden');
     document.getElementById('tournament-stage').classList.remove('hidden');
+    document.getElementById('tournament-type-label').innerText = tournamentType === 'swiss' ? '賽制：瑞士制' : '賽制：單淘汰制';
     
     updateUI();
 }
 
-// --- 2. 瑞士制配對核心邏輯 ---
+// --- 2. 瑞士制配對邏輯 ---
 function generatePairings(targetPlayers) {
     let pairings = [];
     let visited = new Set();
 
-    // 如果人數是奇數，處理「拜空 (Bye)」
+    // 處理奇數人數拜空 (Bye)
     if (targetPlayers.length % 2 !== 0) {
-        // 在目前的目標群裡，從後往前找一個這輩子還沒拿過 Bye 的人（第一輪就直接抓最後一個）
         let byePlayer = targetPlayers.pop();
         pairings.push({
             matchId: pairings.length + 1,
@@ -198,13 +239,12 @@ function generatePairings(targetPlayers) {
             p2: { id: null, name: "【 拜空 Bye 】" },
             p1Score: 4,
             p2Score: 0,
-            isLocked: true, // 拜空場次直接鎖定不需輸入
             winnerId: byePlayer.id
         });
         visited.add(byePlayer.id);
     }
 
-    // 貪心演算法兩兩配對
+    // 兩兩配對
     for (let i = 0; i < targetPlayers.length; i++) {
         let p1 = targetPlayers[i];
         if (visited.has(p1.id)) continue;
@@ -213,7 +253,6 @@ function generatePairings(targetPlayers) {
         for (let j = i + 1; j < targetPlayers.length; j++) {
             let p2 = targetPlayers[j];
             
-            // 條件：p2 還沒被配對，且兩人在之前的輪次「沒對戰過」
             if (!visited.has(p2.id) && !p1.opponents.includes(p2.id)) {
                 pairings.push({
                     matchId: pairings.length + 1,
@@ -221,7 +260,6 @@ function generatePairings(targetPlayers) {
                     p2: p2,
                     p1Score: 0,
                     p2Score: 0,
-                    isLocked: false,
                     winnerId: null
                 });
                 visited.add(p1.id);
@@ -231,7 +269,7 @@ function generatePairings(targetPlayers) {
             }
         }
 
-        // 防呆：如果完全找不到沒打過的，就強制與下一個落單的人打（破壞不重複原則以防卡死）
+        // 避免卡死的強制配對
         if (!matched && !visited.has(p1.id)) {
             for (let j = i + 1; j < targetPlayers.length; j++) {
                 let p2 = targetPlayers[j];
@@ -242,7 +280,6 @@ function generatePairings(targetPlayers) {
                         p2: p2,
                         p1Score: 0,
                         p2Score: 0,
-                        isLocked: false,
                         winnerId: null
                     });
                     visited.add(p1.id);
@@ -255,50 +292,95 @@ function generatePairings(targetPlayers) {
     rounds.push(pairings);
 }
 
-// --- 3. 同分排名與小分(Buchholz)計算 ---
+// --- 3. 單淘汰制配對邏輯 (修正版：雙雙對戰優先) ---
+function generateSingleEliminationPairings(targetPlayers) {
+    let pairings = [];
+    
+    // 只有在第一輪需要處理輪空 (Bye) 的問題來湊齊 2 的次方
+    if (currentRound === 1) {
+        let count = targetPlayers.length;
+        let nextPowerOfTwo = Math.pow(2, Math.ceil(Math.log2(count)));
+        
+        // 真正需要輪空的人數
+        let numByes = nextPowerOfTwo - count;
+
+        // 抽出少數需要輪空的人
+        for (let i = 0; i < numByes; i++) {
+            let byePlayer = targetPlayers.pop();
+            pairings.push({
+                matchId: pairings.length + 1,
+                p1: byePlayer,
+                p2: { id: null, name: "【 輪空 Bye 】" },
+                p1Score: 4,
+                p2Score: 0,
+                winnerId: byePlayer.id
+            });
+        }
+    }
+
+    // 剩餘的大多數選手，通通安排雙雙對戰
+    for (let i = 0; i < targetPlayers.length; i += 2) {
+        pairings.push({
+            matchId: pairings.length + 1,
+            p1: targetPlayers[i],
+            p2: targetPlayers[i+1],
+            p1Score: 0,
+            p2Score: 0,
+            winnerId: null
+        });
+    }
+
+    rounds.push(pairings);
+}
+
+// --- 4. 排名與小分(Buchholz)計算 ---
 function calculateRankings() {
-    // 每次重新整理排行前，先把所有人的累積積分和小分歸零，重新從對戰歷史計算
     players.forEach(p => { p.score = 0; p.bxh = 0; p.opponents = []; });
 
-    // 爬梳所有打完的場次來更新積分與對戰歷史
     rounds.forEach(roundMatches => {
         roundMatches.forEach(m => {
-            if(m.p2.id !== null) { // 非拜空場次
-                p1Real = players.find(p => p.id === m.p1.id);
-                p2Real = players.find(p => p.id === m.p2.id);
-                p1Real.opponents.push(p2Real.id);
-                p2Real.opponents.push(p1Real.id);
+            if(m.p2.id !== null) { 
+                let p1Real = players.find(p => p.id === m.p1.id);
+                let p2Real = players.find(p => p.id === m.p2.id);
+                if(p1Real && p2Real) {
+                    p1Real.opponents.push(p2Real.id);
+                    p2Real.opponents.push(p1Real.id);
 
-                if (m.winnerId === m.p1.id) p1Real.score += 3;
-                else if (m.winnerId === m.p2.id) p2Real.score += 3;
-                else if (m.winnerId === 'draw') { p1Real.score += 1; p2Real.score += 1; }
-            } else { // 拜空場次
-                p1Real = players.find(p => p.id === m.p1.id);
-                p1Real.score += 3; 
+                    if (m.winnerId === m.p1.id) p1Real.score += 3;
+                    else if (m.winnerId === m.p2.id) p2Real.score += 3;
+                    else if (m.winnerId === 'draw') { p1Real.score += 1; p2Real.score += 1; }
+                }
+            } else { 
+                let p1Real = players.find(p => p.id === m.p1.id);
+                if(p1Real) p1Real.score += 3; 
             }
         });
     });
 
-    // 計算步赫茲分：把對手們的「當前總積分」加總
-    players.forEach(p => {
-        p.bxh = p.opponents.reduce((sum, oppId) => {
-            let opp = players.find(o => o.id === oppId);
-            return sum + (opp ? opp.score : 0);
-        }, 0);
-    });
+    if (tournamentType === 'swiss') {
+        players.forEach(p => {
+            p.bxh = p.opponents.reduce((sum, oppId) => {
+                let opp = players.find(o => o.id === oppId);
+                return sum + (opp ? opp.score : 0);
+            }, 0);
+        });
 
-    // 排序：總積分高 -> 小分高 -> ID 順序
-    players.sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return b.bxh - a.bxh;
-    });
+        players.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return b.bxh - a.bxh;
+        });
+    } else {
+        players.sort((a, b) => {
+            if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+            return b.score - a.score;
+        });
+    }
 }
 
-// --- 4. 畫面渲染 UI Functions ---
+// --- 5. 畫面渲染 UI ---
 function updateUI() {
     document.getElementById('current-round-title').innerText = `當前輪次：第 ${currentRound} 輪 / 總共 ${totalRoundsSetting} 輪`;
     
-    // 渲染對戰面板
     const matchesContainer = document.getElementById('matches-container');
     matchesContainer.innerHTML = '';
     
@@ -309,14 +391,12 @@ function updateUI() {
         row.className = 'match-row';
         
         if (match.p2.id === null) {
-            // 拜空特殊 UI
             row.innerHTML = `
                 <div><strong>桌次 ${match.matchId}</strong></div>
                 <div>🎉 ${match.p1.name}</div>
-                <div style="color: #2ed573; font-weight:bold;">輪空 (Bye) +3分</div>
+                <div style="color: #2ed573; font-weight:bold;">輪空 (Bye) 直接晉級</div>
             `;
         } else {
-            // 正規賽事對戰 UI
             row.innerHTML = `
                 <div><strong>桌次 ${match.matchId}</strong></div>
                 <div style="text-align: right; flex: 1; padding-right: 10px;">${match.p1.name}</div>
@@ -331,25 +411,28 @@ function updateUI() {
         matchesContainer.appendChild(row);
     });
 
-    // 渲染排行榜
     calculateRankings();
+    
+    // 渲染排行榜
     const leaderboardBody = document.getElementById('leaderboard-body');
     leaderboardBody.innerHTML = '';
     players.forEach((p, idx) => {
         const tr = document.createElement('tr');
+        const nameStyle = p.isEliminated && tournamentType === 'single' ? 'style="text-decoration: line-through; color: #aaa;"' : '';
+        const bxhText = tournamentType === 'swiss' ? `<td>${p.bxh}</td>` : '<td style="display:none;">0</td>';
+        
         tr.innerHTML = `
             <td><strong>${idx + 1}</strong></td>
-            <td>${p.name}</td>
+            <td ${nameStyle}>${p.name} ${p.isEliminated && tournamentType === 'single' ? '(汰)' : ''}</td>
             <td>${p.score} 分</td>
-            <td>${p.bxh}</td>
+            ${bxhText}
         `;
         leaderboardBody.appendChild(tr);
     });
     
-    // 判斷是否為最後一輪
     const nextBtn = document.getElementById('next-round-btn');
     if (currentRound >= totalRoundsSetting) {
-        nextBtn.innerText = "比賽結束！產生最終排名成果";
+        nextBtn.innerText = "比賽結束！產生最終冠軍";
         nextBtn.style.backgroundColor = "#2ed573";
     } else {
         nextBtn.innerText = "確認此輪比分並計算下一輪";
@@ -357,62 +440,68 @@ function updateUI() {
     }
 }
 
-// 即時紀錄主辦輸入的分數並直接判斷勝負
+// 監聽並即時計算勝負
 function updateScore(matchIndex, playerKey, value) {
     let val = parseInt(value) || 0;
-    if(val > 4) val = 4; // 戰鬥陀螺X 上限 4 分
+    if(val > 4) val = 4; 
     if(val < 0) val = 0;
 
     let match = rounds[currentRound - 1][matchIndex];
     if (playerKey === 'p1') match.p1Score = val;
     if (playerKey === 'p2') match.p2Score = val;
 
-    // 自動判定勝者 (4分獲勝制，若都沒到4分或平分可自行調整)
     if (match.p1Score === 4 && match.p2Score < 4) {
         match.winnerId = match.p1.id;
     } else if (match.p2Score === 4 && match.p1Score < 4) {
         match.winnerId = match.p2.id;
     } else if (match.p1Score === match.p2Score) {
-        match.winnerId = 'draw'; // 平手
+        match.winnerId = 'draw'; 
     } else {
-        // 如果是用其他分數完賽，以分數高者獲勝
         match.winnerId = match.p1Score > match.p2Score ? match.p1.id : match.p2.id;
     }
     
-    // 即時重算排行榜讓主辦過目
     calculateRankings();
-    // 重新更新右側排行榜
-    const leaderboardBody = document.getElementById('leaderboard-body');
-    leaderboardBody.innerHTML = '';
-    players.forEach((p, idx) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td><strong>${idx + 1}</strong></td><td>${p.name}</td><td>${p.score} 分</td><td>${p.bxh}</td>`;
-        leaderboardBody.appendChild(tr);
-    });
+    updateUI();
 }
 
-// --- 5. 送出本輪，推進下一輪 ---
+// --- 6. 送出本輪，推進下一輪 ---
 function submitRound() {
-    // 檢查是否有場次還沒填完比分（這裡做簡易防呆：確認大家都不是 null）
     let currentMatches = rounds[currentRound - 1];
-    let allFinished = currentMatches.every(m => m.p2.id === null || m.p1Score === 4 || m.p2Score === 4 || window.confirm("有場次未滿4分，是否強制以此比分結算？"));
     
-    if (!allFinished) return;
+    let anyIncomplete = currentMatches.some(m => m.p2.id !== null && m.p1Score < 4 && m.p2Score < 4);
+    if (anyIncomplete) {
+        if (!window.confirm("有部分場次未滿 4 分，確定要直接以此比分結算嗎？")) {
+            return;
+        }
+    }
 
     if (currentRound >= totalRoundsSetting) {
-        alert("🎉 恭喜！全輪次比賽已順利結束！右側即為最終名次。");
+        alert(`🎉 賽事全部結束！恭喜【 ${players[0].name} 】獲得最終冠軍！`);
         return;
     }
 
-    // 晉級到下一輪
     currentRound++;
     
-    // 依據目前最新的「積分排行榜」順序，做下一輪的瑞士制配對
-    calculateRankings();
-    // 複製一份當前排名完的選手陣列（必須用真實資料庫指引的順序）
-    let sortedActivePlayers = players.map(p => players.find(pReal => pReal.id === p.id));
+    if (tournamentType === 'single') {
+        let previousMatches = rounds[currentRound - 2];
+        let winners = [];
+        
+        previousMatches.forEach(m => {
+            let winner = players.find(p => p.id === m.winnerId);
+            if (winner) winners.push(winner);
+            
+            let loserId = (m.winnerId === m.p1.id) ? m.p2.id : m.p1.id;
+            let loser = players.find(p => p.id === loserId);
+            if (loser) loser.isEliminated = true;
+        });
+        
+        generateSingleEliminationPairings(winners);
+    } else {
+        calculateRankings();
+        let sortedActivePlayers = players.map(p => players.find(pReal => pReal.id === p.id));
+        generatePairings(sortedActivePlayers);
+    }
     
-    generatePairings(sortedActivePlayers);
     updateUI();
     window.scrollTo(0, 0);
 }
