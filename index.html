@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>戰鬥陀螺X 瑞士制比賽管理系統</title>
+    <style>
+        :root {
+            --primary: #ff4757;
+            --secondary: #2f3542;
+            --bg: #f1f2f6;
+            --card-bg: #ffffff;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--secondary);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 { text-align: center; color: var(--primary); }
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-secondary { background-color: #747d8c; }
+        
+        /* 頁籤設計 */
+        .flex-container { display: flex; gap: 20px; }
+        .flex-child { flex: 1; min-width: 300px; }
+        
+        /* 對戰組合樣式 */
+        .match-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            background: #fafafa;
+            margin-bottom: 8px;
+            border-radius: 4px;
+        }
+        .score-input {
+            width: 50px;
+            text-align: center;
+            font-size: 16px;
+            padding: 4px;
+            margin: 0 5px;
+        }
+        
+        /* 排行榜表格 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th { background-color: #f1f2f6; }
+        
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🌪️ 戰鬥陀螺X 瑞士制賽事管理</h1>
+    
+    <div id="setup-stage" class="card">
+        <h2>第一步：賽事設定與選手登錄</h2>
+        <div style="margin-bottom: 15px;">
+            <label><strong>預計比賽輪數：</strong></label>
+            <input type="number" id="total-rounds" value="6" min="1" max="10" style="padding: 5px; width: 60px;">
+            <small style="color: #666; margin-left: 10px;">(建議：64人設定 6 輪)</small>
+        </div>
+        <p>請輸入選手名單（每行一個名字，上限 64 人）：</p>
+        <textarea id="player-names" placeholder="選手A&#10;選手B&#10;選手C..."></textarea>
+        <p><button class="btn" onclick="startTournament()">生成第一輪對戰 (隨機抽籤)</button></p>
+    </div>
+
+    <div id="tournament-stage" class="card hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2 id="current-round-title">當前輪次：第 1 輪</h2>
+            <div>
+                <button class="btn btn-secondary" onclick="resetTournament()">重設賽事</button>
+            </div>
+        </div>
+        
+        <div class="flex-container">
+            <div class="flex-child">
+                <h3>🥊 對戰組合與比分填寫</h3>
+                <p style="color: #666; font-size: 14px;">提示：戰鬥陀螺X 正規賽為 4 分制，請點選或輸入雙方分數。</p>
+                <div id="matches-container"></div>
+                <button class="btn" id="next-round-btn" onclick="submitRound()" style="width: 100%; margin-top: 15px;">確認此輪比分並計算下一輪</button>
+            </div>
+            
+            <div class="flex-child">
+                <h3>📊 即時積分排行榜</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>名字</th>
+                            <th>積分 (勝3/平1)</th>
+                            <th>小分 (Buchholz)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- 全域變數定義 ---
+let players = [];
+let rounds = []; // 存放每一輪的對戰資訊
+let currentRound = 0;
+let totalRoundsSetting = 6;
+
+// --- 1. 初始化賽事 ---
+function startTournament() {
+    const text = document.getElementById('player-names').value.trim();
+    if (!text) return alert('請輸入選手名單！');
+    
+    const names = text.split('\n').map(n => n.trim()).filter(n => n !== '');
+    if (names.length > 64) return alert('目前系統上限為 64 人！');
+    if (names.length < 2) return alert('至少需要 2 位選手才能開始比賽！');
+    
+    totalRoundsSetting = parseInt(document.getElementById('total-rounds').value) || 6;
+
+    // 格式化選手資料
+    players = names.map((name, index) => ({
+        id: index + 1,
+        name: name,
+        score: 0,
+        bxh: 0,
+        opponents: []
+    }));
+
+    currentRound = 1;
+    rounds = [];
+    
+    // 第一輪隨機亂序配對
+    let shuffledPlayers = [...players].sort(() => Math.random() - 0.5);
+    generatePairings(shuffledPlayers);
+
+    // 切換 UI 顯示
+    document.getElementById('setup-stage').classList.add('hidden');
+    document.getElementById('tournament-stage').classList.remove('hidden');
+    
+    updateUI();
+}
+
+// --- 2. 瑞士制配對核心邏輯 ---
+function generatePairings(targetPlayers) {
+    let pairings = [];
+    let visited = new Set();
+
+    // 如果人數是奇數，處理「拜空 (Bye)」
+    if (targetPlayers.length % 2 !== 0) {
+        // 在目前的目標群裡，從後往前找一個這輩子還沒拿過 Bye 的人（第一輪就直接抓最後一個）
+        let byePlayer = targetPlayers.pop();
+        pairings.push({
+            matchId: pairings.length + 1,
+            p1: byePlayer,
+            p2: { id: null, name: "【 拜空 Bye 】" },
+            p1Score: 4,
+            p2Score: 0,
+            isLocked: true, // 拜空場次直接鎖定不需輸入
+            winnerId: byePlayer.id
+        });
+        visited.add(byePlayer.id);
+    }
+
+    // 貪心演算法兩兩配對
+    for (let i = 0; i < targetPlayers.length; i++) {
+        let p1 = targetPlayers[i];
+        if (visited.has(p1.id)) continue;
+
+        let matched = false;
+        for (let j = i + 1; j < targetPlayers.length; j++) {
+            let p2 = targetPlayers[j];
+            
+            // 條件：p2 還沒被配對，且兩人在之前的輪次「沒對戰過」
+            if (!visited.has(p2.id) && !p1.opponents.includes(p2.id)) {
+                pairings.push({
+                    matchId: pairings.length + 1,
+                    p1: p1,
+                    p2: p2,
+                    p1Score: 0,
+                    p2Score: 0,
+                    isLocked: false,
+                    winnerId: null
+                });
+                visited.add(p1.id);
+                visited.add(p2.id);
+                matched = true;
+                break;
+            }
+        }
+
+        // 防呆：如果完全找不到沒打過的，就強制與下一個落單的人打（破壞不重複原則以防卡死）
+        if (!matched && !visited.has(p1.id)) {
+            for (let j = i + 1; j < targetPlayers.length; j++) {
+                let p2 = targetPlayers[j];
+                if (!visited.has(p2.id)) {
+                    pairings.push({
+                        matchId: pairings.length + 1,
+                        p1: p1,
+                        p2: p2,
+                        p1Score: 0,
+                        p2Score: 0,
+                        isLocked: false,
+                        winnerId: null
+                    });
+                    visited.add(p1.id);
+                    visited.add(p2.id);
+                    break;
+                }
+            }
+        }
+    }
+    rounds.push(pairings);
+}
+
+// --- 3. 同分排名與小分(Buchholz)計算 ---
+function calculateRankings() {
+    // 每次重新整理排行前，先把所有人的累積積分和小分歸零，重新從對戰歷史計算
+    players.forEach(p => { p.score = 0; p.bxh = 0; p.opponents = []; });
+
+    // 爬梳所有打完的場次來更新積分與對戰歷史
+    rounds.forEach(roundMatches => {
+        roundMatches.forEach(m => {
+            if(m.p2.id !== null) { // 非拜空場次
+                p1Real = players.find(p => p.id === m.p1.id);
+                p2Real = players.find(p => p.id === m.p2.id);
+                p1Real.opponents.push(p2Real.id);
+                p2Real.opponents.push(p1Real.id);
+
+                if (m.winnerId === m.p1.id) p1Real.score += 3;
+                else if (m.winnerId === m.p2.id) p2Real.score += 3;
+                else if (m.winnerId === 'draw') { p1Real.score += 1; p2Real.score += 1; }
+            } else { // 拜空場次
+                p1Real = players.find(p => p.id === m.p1.id);
+                p1Real.score += 3; 
+            }
+        });
+    });
+
+    // 計算步赫茲分：把對手們的「當前總積分」加總
+    players.forEach(p => {
+        p.bxh = p.opponents.reduce((sum, oppId) => {
+            let opp = players.find(o => o.id === oppId);
+            return sum + (opp ? opp.score : 0);
+        }, 0);
+    });
+
+    // 排序：總積分高 -> 小分高 -> ID 順序
+    players.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.bxh - a.bxh;
+    });
+}
+
+// --- 4. 畫面渲染 UI Functions ---
+function updateUI() {
+    document.getElementById('current-round-title').innerText = `當前輪次：第 ${currentRound} 輪 / 總共 ${totalRoundsSetting} 輪`;
+    
+    // 渲染對戰面板
+    const matchesContainer = document.getElementById('matches-container');
+    matchesContainer.innerHTML = '';
+    
+    let currentMatches = rounds[currentRound - 1];
+    
+    currentMatches.forEach((match, index) => {
+        const row = document.createElement('div');
+        row.className = 'match-row';
+        
+        if (match.p2.id === null) {
+            // 拜空特殊 UI
+            row.innerHTML = `
+                <div><strong>桌次 ${match.matchId}</strong></div>
+                <div>🎉 ${match.p1.name}</div>
+                <div style="color: #2ed573; font-weight:bold;">輪空 (Bye) +3分</div>
+            `;
+        } else {
+            // 正規賽事對戰 UI
+            row.innerHTML = `
+                <div><strong>桌次 ${match.matchId}</strong></div>
+                <div style="text-align: right; flex: 1; padding-right: 10px;">${match.p1.name}</div>
+                <div>
+                    <input type="number" class="score-input" min="0" max="4" value="${match.p1Score}" onchange="updateScore(${index}, 'p1', this.value)">
+                    :
+                    <input type="number" class="score-input" min="0" max="4" value="${match.p2Score}" onchange="updateScore(${index}, 'p2', this.value)">
+                </div>
+                <div style="text-align: left; flex: 1; padding-left: 10px;">${match.p2.name}</div>
+            `;
+        }
+        matchesContainer.appendChild(row);
+    });
+
+    // 渲染排行榜
+    calculateRankings();
+    const leaderboardBody = document.getElementById('leaderboard-body');
+    leaderboardBody.innerHTML = '';
+    players.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${idx + 1}</strong></td>
+            <td>${p.name}</td>
+            <td>${p.score} 分</td>
+            <td>${p.bxh}</td>
+        `;
+        leaderboardBody.appendChild(tr);
+    });
+    
+    // 判斷是否為最後一輪
+    const nextBtn = document.getElementById('next-round-btn');
+    if (currentRound >= totalRoundsSetting) {
+        nextBtn.innerText = "比賽結束！產生最終排名成果";
+        nextBtn.style.backgroundColor = "#2ed573";
+    } else {
+        nextBtn.innerText = "確認此輪比分並計算下一輪";
+        nextBtn.style.backgroundColor = "var(--primary)";
+    }
+}
+
+// 即時紀錄主辦輸入的分數並直接判斷勝負
+function updateScore(matchIndex, playerKey, value) {
+    let val = parseInt(value) || 0;
+    if(val > 4) val = 4; // 戰鬥陀螺X 上限 4 分
+    if(val < 0) val = 0;
+
+    let match = rounds[currentRound - 1][matchIndex];
+    if (playerKey === 'p1') match.p1Score = val;
+    if (playerKey === 'p2') match.p2Score = val;
+
+    // 自動判定勝者 (4分獲勝制，若都沒到4分或平分可自行調整)
+    if (match.p1Score === 4 && match.p2Score < 4) {
+        match.winnerId = match.p1.id;
+    } else if (match.p2Score === 4 && match.p1Score < 4) {
+        match.winnerId = match.p2.id;
+    } else if (match.p1Score === match.p2Score) {
+        match.winnerId = 'draw'; // 平手
+    } else {
+        // 如果是用其他分數完賽，以分數高者獲勝
+        match.winnerId = match.p1Score > match.p2Score ? match.p1.id : match.p2.id;
+    }
+    
+    // 即時重算排行榜讓主辦過目
+    calculateRankings();
+    // 重新更新右側排行榜
+    const leaderboardBody = document.getElementById('leaderboard-body');
+    leaderboardBody.innerHTML = '';
+    players.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><strong>${idx + 1}</strong></td><td>${p.name}</td><td>${p.score} 分</td><td>${p.bxh}</td>`;
+        leaderboardBody.appendChild(tr);
+    });
+}
+
+// --- 5. 送出本輪，推進下一輪 ---
+function submitRound() {
+    // 檢查是否有場次還沒填完比分（這裡做簡易防呆：確認大家都不是 null）
+    let currentMatches = rounds[currentRound - 1];
+    let allFinished = currentMatches.every(m => m.p2.id === null || m.p1Score === 4 || m.p2Score === 4 || window.confirm("有場次未滿4分，是否強制以此比分結算？"));
+    
+    if (!allFinished) return;
+
+    if (currentRound >= totalRoundsSetting) {
+        alert("🎉 恭喜！全輪次比賽已順利結束！右側即為最終名次。");
+        return;
+    }
+
+    // 晉級到下一輪
+    currentRound++;
+    
+    // 依據目前最新的「積分排行榜」順序，做下一輪的瑞士制配對
+    calculateRankings();
+    // 複製一份當前排名完的選手陣列（必須用真實資料庫指引的順序）
+    let sortedActivePlayers = players.map(p => players.find(pReal => pReal.id === p.id));
+    
+    generatePairings(sortedActivePlayers);
+    updateUI();
+    window.scrollTo(0, 0);
+}
+
+function resetTournament() {
+    if(confirm("確定要重設比賽嗎？目前所有資料將會消失。")) {
+        document.getElementById('setup-stage').classList.remove('hidden');
+        document.getElementById('tournament-stage').classList.add('hidden');
+        document.getElementById('player-names').value = '';
+    }
+}
+</script>
+
+</body>
+</html>
